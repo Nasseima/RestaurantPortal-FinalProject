@@ -41,7 +41,14 @@ class RestaurantDatabase {
         return $customerId;
     }
 
-    public function addReservation($customerId, $reservationTime, $numberOfGuests, $specialRequests) {
+    public function addReservation($customerName, $contactInfo, $reservationTime, $numberOfGuests, $specialRequests) {
+        // Check if the customer exists, if not create a new customer
+        $customerId = $this->getCustomerId($customerName, $contactInfo);
+        if (!$customerId) {
+            $customerId = $this->addCustomer($customerName, $contactInfo);
+        }
+
+        // Add the reservation
         $stmt = $this->connection->prepare("INSERT INTO Reservations (customerId, reservationTime, numberOfGuests, specialRequests) VALUES (?, ?, ?, ?)");
         $stmt->bind_param("isis", $customerId, $reservationTime, $numberOfGuests, $specialRequests);
         $stmt->execute();
@@ -60,6 +67,30 @@ class RestaurantDatabase {
         return $reservations;
     }
 
+    public function addSpecialRequest($reservationId, $newRequest) {
+        // First, get the current special requests
+        $stmt = $this->connection->prepare("SELECT specialRequests FROM Reservations WHERE reservationId = ?");
+        $stmt->bind_param("i", $reservationId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $row = $result->fetch_assoc();
+        $stmt->close();
+
+        if ($row) {
+            // Update the special requests
+            $currentRequests = $row['specialRequests'];
+            $updatedRequests = $currentRequests ? $currentRequests . "\n" . $newRequest : $newRequest;
+
+            $stmt = $this->connection->prepare("UPDATE Reservations SET specialRequests = ? WHERE reservationId = ?");
+            $stmt->bind_param("si", $updatedRequests, $reservationId);
+            $stmt->execute();
+            $affectedRows = $stmt->affected_rows;
+            $stmt->close();
+            return $affectedRows > 0;
+        }
+        return false;
+    }
+
     public function getAllReservationsWithCustomers() {
         $query = "SELECT r.reservationId, r.reservationTime, r.numberOfGuests, r.specialRequests, 
                          c.customerId, c.customerName, c.contactInfo 
@@ -70,27 +101,27 @@ class RestaurantDatabase {
         return $result->fetch_all(MYSQLI_ASSOC);
     }
 
-    public function searchReservations($searchTerm) {
-        $searchTerm = "%$searchTerm%";
-        $query = "SELECT r.reservationId, r.reservationTime, r.numberOfGuests, r.specialRequests, 
-                         c.customerId, c.customerName, c.contactInfo 
-                  FROM Reservations r 
-                  JOIN Customers c ON r.customerId = c.customerId 
-                  WHERE c.customerName LIKE ? OR c.customerId = ?
-                  ORDER BY r.reservationTime DESC";
-        $stmt = $this->connection->prepare($query);
-        $stmt->bind_param("ss", $searchTerm, $searchTerm);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $reservations = $result->fetch_all(MYSQLI_ASSOC);
-        $stmt->close();
-        return $reservations;
-    }
-
     public function getAllCustomers() {
         $query = "SELECT * FROM Customers ORDER BY customerName";
         $result = $this->connection->query($query);
         return $result->fetch_all(MYSQLI_ASSOC);
+    }
+
+    public function deleteCustomer($customerId) {
+        // First, delete all reservations associated with this customer
+        $stmt = $this->connection->prepare("DELETE FROM Reservations WHERE customerId = ?");
+        $stmt->bind_param("i", $customerId);
+        $stmt->execute();
+        $stmt->close();
+
+        // Then, delete the customer
+        $stmt = $this->connection->prepare("DELETE FROM Customers WHERE customerId = ?");
+        $stmt->bind_param("i", $customerId);
+        $stmt->execute();
+        $affectedRows = $stmt->affected_rows;
+        $stmt->close();
+
+        return $affectedRows > 0;
     }
 
     public function deleteReservation($reservationId) {
@@ -100,55 +131,6 @@ class RestaurantDatabase {
         $affectedRows = $stmt->affected_rows;
         $stmt->close();
         return $affectedRows > 0;
-    }
-
-    public function addSpecialRequest($reservationId, $newRequest) {
-        $stmt = $this->connection->prepare("SELECT specialRequests FROM Reservations WHERE reservationId = ?");
-        $stmt->bind_param("i", $reservationId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $row = $result->fetch_assoc();
-        $stmt->close();
-
-        if ($row) {
-            $currentRequests = $row['specialRequests'];
-            $updatedRequests = $currentRequests ? $currentRequests . "\n" . $newRequest : $newRequest;
-
-            $stmt = $this->connection->prepare("UPDATE Reservations SET specialRequests = ? WHERE reservationId = ?");
-            $stmt->bind_param("si", $updatedRequests, $reservationId);
-            $stmt->execute();
-            $stmt->close();
-            return true;
-        }
-        return false;
-    }
-
-    
-
-    public function getReservation($reservationId) {
-        $stmt = $this->connection->prepare("SELECT * FROM Reservations WHERE reservationId = ?");
-        $stmt->bind_param("i", $reservationId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $reservation = $result->fetch_assoc();
-        $stmt->close();
-        return $reservation;
-    }
-
-    public function updateSpecialRequest($reservationId, $specialRequests) {
-        $stmt = $this->connection->prepare("UPDATE Reservations SET specialRequests = ? WHERE reservationId = ?");
-        $stmt->bind_param("si", $specialRequests, $reservationId);
-        $result = $stmt->execute();
-        $stmt->close();
-        return $result;
-    }
-
-    public function getCustomerById($customerId) {
-        $stmt = $this->db->prepare("SELECT * FROM customers WHERE customerId = ?");
-        $stmt->bind_param("i", $customerId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        return $result->fetch_assoc();
     }
 
     public function getCustomerPreferences($customerId) {
@@ -161,6 +143,14 @@ class RestaurantDatabase {
         return $preferences;
     }
 
-    
+    public function getCustomerById($customerId) {
+        $stmt = $this->connection->prepare("SELECT * FROM Customers WHERE customerId = ?");
+        $stmt->bind_param("i", $customerId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $customer = $result->fetch_assoc();
+        $stmt->close();
+        return $customer;
+    }
 }
 ?>

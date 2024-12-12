@@ -24,6 +24,9 @@ class RestaurantPortal {
                 $this->addReservationPage();
                 break;
             case 'customers':
+                if (isset($_GET['delete'])) {
+                    $this->deleteCustomer($_GET['delete']);
+                }
                 $this->customersPage();
                 break;
             case 'addCustomer':
@@ -33,7 +36,10 @@ class RestaurantPortal {
                 $this->addSpecialRequestPage();
                 break;
             case 'customerPreferences':
-                $this->customerPreferencesPage();
+                $this->customerPreferences();
+                break;
+            case 'viewCustomerReservations':
+                $this->viewCustomerReservations();
                 break;
             default:
                 $this->home();
@@ -194,16 +200,9 @@ class RestaurantPortal {
         $numberOfGuests = $_POST['number_of_guests'];
         $specialRequests = $_POST['special_requests'];
 
-        $customerId = $this->db->getCustomerId($customerName, $contactInfo);
-
-        if (!$customerId) {
-            $customerId = $this->db->addCustomer($customerName, $contactInfo);
-            echo "<p>New customer added automatically (ID: {$customerId})</p>";
-        }
-
-        $reservationId = $this->db->addReservation($customerId, $reservationTime, $numberOfGuests, $specialRequests);
+        $reservationId = $this->db->addReservation($customerName, $contactInfo, $reservationTime, $numberOfGuests, $specialRequests);
         if ($reservationId) {
-            echo "<p>Reservation Added Successfully (ID: {$reservationId}) for Customer (ID: {$customerId})</p>";
+            echo "<p>Reservation Added Successfully (ID: {$reservationId})</p>";
         } else {
             echo "<p>Error: Failed to add reservation.</p>";
         }
@@ -285,7 +284,8 @@ class RestaurantPortal {
                 echo "<td>" . htmlspecialchars($customer['customerName']) . "</td>";
                 echo "<td>" . htmlspecialchars($customer['contactInfo']) . "</td>";
                 echo "<td>
-                    <a href='index.php?action=customers&delete=" . $customer['customerId'] . "' onclick='return confirm(\"Are you sure you want to delete this customer?\");'>Delete</a>
+                    <a href='index.php?action=viewCustomerReservations&customer_id=" . $customer['customerId'] . "'>View Reservations</a> |
+                    <a href='index.php?action=customers&delete=" . $customer['customerId'] . "' onclick='return confirm(\"Are you sure you want to delete this customer? This will also delete all their reservations.\");'>Delete</a>
                 </td>";
                 echo "</tr>";
             }
@@ -324,16 +324,50 @@ class RestaurantPortal {
         }
     }
 
-    private function customerPreferencesPage() {
+    private function customerPreferences() {
         $customerId = $_GET['customer_id'] ?? null;
         if ($customerId) {
+            $customer = $this->db->getCustomerById($customerId);
             $preferences = $this->db->getCustomerPreferences($customerId);
-            echo "<h2>Customer Preferences</h2>";
-            if ($preferences) {
-                echo "<p>Favorite Table: " . htmlspecialchars($preferences['favoriteTable']) . "</p>";
-                echo "<p>Dietary Restrictions: " . htmlspecialchars($preferences['dietaryRestrictions']) . "</p>";
+            
+            echo "<h2>Customer Preferences for " . htmlspecialchars($customer['customerName']) . "</h2>";
+            include 'viewCustomerPreferences.php';
+        } else {
+            echo "<p>Error: Customer ID not provided.</p>";
+        }
+        echo "<a href='index.php?action=customers'>Back to Customers</a>";
+    }
+
+    private function deleteCustomer($customerId) {
+        $success = $this->db->deleteCustomer($customerId);
+        if ($success) {
+            echo "<p>Customer (ID: {$customerId}) has been deleted successfully along with all their reservations.</p>";
+        } else {
+            echo "<p>Failed to delete customer (ID: {$customerId}). It may not exist or there was an error.</p>";
+        }
+    }
+
+    private function viewCustomerReservations() {
+        $customerId = $_GET['customer_id'] ?? null;
+        if ($customerId) {
+            $customer = $this->db->getCustomerById($customerId);
+            $reservations = $this->db->findReservations($customerId);
+            
+            echo "<h2>Reservations for " . htmlspecialchars($customer['customerName']) . "</h2>";
+            if (!empty($reservations)) {
+                echo "<table>";
+                echo "<tr><th>Reservation ID</th><th>Reservation Time</th><th>Number of Guests</th><th>Special Requests</th></tr>";
+                foreach ($reservations as $reservation) {
+                    echo "<tr>";
+                    echo "<td>" . htmlspecialchars($reservation['reservationId']) . "</td>";
+                    echo "<td>" . htmlspecialchars($reservation['reservationTime']) . "</td>";
+                    echo "<td>" . htmlspecialchars($reservation['numberOfGuests']) . "</td>";
+                    echo "<td>" . htmlspecialchars($reservation['specialRequests']) . "</td>";
+                    echo "</tr>";
+                }
+                echo "</table>";
             } else {
-                echo "<p>No preferences found for this customer.</p>";
+                echo "<p>No reservations found for this customer.</p>";
             }
         } else {
             echo "<p>Error: Customer ID not provided.</p>";
